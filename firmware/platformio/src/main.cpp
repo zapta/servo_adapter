@@ -2,12 +2,16 @@
 
 #include <Arduino.h>
 #include "board.h"
+#include <mbed.h>
 
 // #pragma GCC push_options
 // #pragma GCC optimize("Og")
 
 using board::led;
+using mbed::PwmOut;
 
+PwmOut pwm1(p8);
+PwmOut pwm2(p9);
 
 
 // Maps PWM pin index to gp pin index.
@@ -526,6 +530,14 @@ void setup() {
 
   // USB serial.
   Serial.begin(115200);
+
+
+  // Pulse width should be between 1000us and 2000ms for 0-180deg.
+  pwm1.pulsewidth_us(1500);
+  pwm1.period_ms(20);
+
+  pwm2.pulsewidth_us(1200);
+  pwm2.period_ms(10);
 
   // Init CS outputs.
   // for (uint8_t i = 0; i < kNumCsPins; i++) {
