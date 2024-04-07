@@ -1,8 +1,6 @@
 // Firmware of the SPI Adapter implementation using a Raspberry Pico.
 
 #include <Arduino.h>
-#include <SPI.h>
-
 #include "board.h"
 
 // #pragma GCC push_options
@@ -12,21 +10,20 @@ using board::led;
 
 
 
-// SPI pins:
-//   PIN_SPI_SCK   GP18
-//   PIN_SPI_MOSI  GP19
-//   PIN_SPI_MISO  GP16
-
-// Maps CS pin index to gp pin index.
-static uint8_t cs_pins[] = {
-    10,  // CS 0 = GP10
-    11,  // CS 1 = GP11
-    12,  // CS 2 = GP12
-    13,  // CS 3 = GP13
+// Maps PWM pin index to gp pin index.
+static uint8_t pwm_pins[] = {
+    8,   // PWM 0 = GP8
+    9,   // PWM 1 = GP9
+    10,  // PWM 2 = GP10
+    11,  // PWM 3 = GP11
+    12,  // PWM 4 = GP12
+    13,  // PWM 5 = GP13
+    14,  // PWM 6 = GP14
+    15,  // PWM 7 = GP15
 };
 
-static constexpr uint8_t kNumCsPins = sizeof(cs_pins) / sizeof(*cs_pins);
-static_assert(kNumCsPins == 4);
+static constexpr uint8_t kNumPwmPins = sizeof(pwm_pins) / sizeof(*pwm_pins);
+static_assert(kNumPwmPins == 8);
 
 // Maps aux pin index to gp pin index.
 static uint8_t aux_pins[] = {
@@ -47,8 +44,6 @@ static constexpr uint8_t kApiVersion = 1;
 static constexpr uint16_t kFirmwareVersion = 1;
 
 // Max number of bytes per transaction.
-// NOTE: We have an issue with custom data larger than 256 bytes so for now
-// we limit the trnasaction size to 256 bytes. If needed, fix it and increase.
 static constexpr uint16_t kMaxTransactionBytes = 256;
 
 // All command bytes must arrive within this time period.
@@ -66,24 +61,24 @@ static uint16_t data_size = 0;
 // Tracks the last spi mode we used. Used to implement a woraround for
 // clock polarity change which requires changing the idle SPI clock
 // level. See https://github.com/arduino/ArduinoCore-mbed/issues/828
-static SPIMode last_spi_mode = SPI_MODE1;
+// static SPIMode last_spi_mode = SPI_MODE1;
 
-static void track_spi_clock_polarity(SPIMode new_spi_mode) {
-  // No change.
-  if (new_spi_mode == last_spi_mode) {
-    return;
-  }
+// static void track_spi_clock_polarity(SPIMode new_spi_mode) {
+//   // No change.
+//   if (new_spi_mode == last_spi_mode) {
+//     return;
+//   }
 
-  // Perform a dummy transaction to settle the clock level.
-  SPISettings spi_setting(4000000, MSBFIRST, new_spi_mode);
-  SPI.beginTransaction(spi_setting);
-  uint8_t dummy_byte = 0;
-  SPI.transfer(&dummy_byte, 0);
-  SPI.endTransaction();
+//   // Perform a dummy transaction to settle the clock level.
+//   SPISettings spi_setting(4000000, MSBFIRST, new_spi_mode);
+//   SPI.beginTransaction(spi_setting);
+//   uint8_t dummy_byte = 0;
+//   SPI.transfer(&dummy_byte, 0);
+//   SPI.endTransaction();
 
-  // Update
-  last_spi_mode = new_spi_mode;
-}
+//   // Update
+//   last_spi_mode = new_spi_mode;
+// }
 
 // A simple timer.
 // Cveate: overflows 50 days after last reset().
@@ -100,20 +95,20 @@ class Timer {
 };
 
 // Turn off all CS outputs.
-static inline void all_cs_off() {
-  static_assert(kNumCsPins == 4);
-  digitalWrite(cs_pins[0], HIGH);
-  digitalWrite(cs_pins[1], HIGH);
-  digitalWrite(cs_pins[2], HIGH);
-  digitalWrite(cs_pins[3], HIGH);
-}
+// static inline void all_cs_off() {
+//   static_assert(kNumCsPins == 4);
+//   digitalWrite(cs_pins[0], HIGH);
+//   digitalWrite(cs_pins[1], HIGH);
+//   digitalWrite(cs_pins[2], HIGH);
+//   digitalWrite(cs_pins[3], HIGH);
+// }
 
 // Turn on a specific CS output.
-static inline void cs_on(uint8_t cs_index) {
-  if (cs_index < kNumCsPins) {
-    digitalWrite(cs_pins[cs_index], LOW);
-  }
-}
+// static inline void cs_on(uint8_t cs_index) {
+//   if (cs_index < kNumCsPins) {
+//     digitalWrite(cs_pins[cs_index], LOW);
+//   }
+// }
 
 // Time since the start of last cmd.
 static Timer cmd_timer;
@@ -182,9 +177,9 @@ static class EchoCommandHandler : public CommandHandler {
 //
 // Response:
 // - byte 0:  'K' for OK.
-// - byte 1:  'S'
-// - byte 2:  'P'
-// - byte 3:  'I'
+// - byte 1:  'P'
+// - byte 2:  'W'
+// - byte 3:  'M'
 // - byte 4:  Number of bytes to follow (3).
 // - byte 5:  Version of wire format API.
 // - byte 6:  MSB of firmware version.
@@ -194,9 +189,9 @@ static class InfoCommandHandler : public CommandHandler {
   InfoCommandHandler() : CommandHandler("INFO") {}
   virtual bool on_cmd_loop() override {
     Serial.write('K');  // 'K' for OK.
-    Serial.write('S');
     Serial.write('P');
-    Serial.write('I');
+    Serial.write('W');
+    Serial.write('M');
     Serial.write(0x03);                     // Number of bytes to follow.
     Serial.write(kApiVersion);              // API version.
     Serial.write(kFirmwareVersion >> 8);    // Firmware version MSB.
@@ -249,107 +244,107 @@ static class InfoCommandHandler : public CommandHandler {
 // 11 : Byte count out of limit
 // 12 : Speed byte is out of range.
 //
-static class SendCommandHandler : public CommandHandler {
- public:
-  SendCommandHandler() : CommandHandler("SEND") { reset(); }
+// static class SendCommandHandler : public CommandHandler {
+//  public:
+//   SendCommandHandler() : CommandHandler("SEND") { reset(); }
 
-  virtual void on_cmd_entered() override { reset(); }
+//   virtual void on_cmd_entered() override { reset(); }
 
-  virtual bool on_cmd_loop() override {
-    // Read command header.
-    if (!_got_cmd_header) {
-      static_assert(sizeof(data_buffer) >= 6);
-      if (!read_serial_bytes(6)) {
-        return false;
-      }
-      // Parse the command header
-      _cs_index = data_buffer[0] & 0b11;
-      _spi_mode = (SPIMode)((data_buffer[0] >> 2) & 0b11);
-      _return_read_bytes = data_buffer[0] & 0b10000;
-      _speed_units = data_buffer[1];
-      _custom_data_count = (((uint16_t)data_buffer[2]) << 8) + data_buffer[3];
-      _extra_data_count = (((uint16_t)data_buffer[4]) << 8) + data_buffer[5];
-      data_size = 0;
-      _got_cmd_header = true;
+//   virtual bool on_cmd_loop() override {
+//     // Read command header.
+//     if (!_got_cmd_header) {
+//       static_assert(sizeof(data_buffer) >= 6);
+//       if (!read_serial_bytes(6)) {
+//         return false;
+//       }
+//       // Parse the command header
+//       _cs_index = data_buffer[0] & 0b11;
+//       _spi_mode = (SPIMode)((data_buffer[0] >> 2) & 0b11);
+//       _return_read_bytes = data_buffer[0] & 0b10000;
+//       _speed_units = data_buffer[1];
+//       _custom_data_count = (((uint16_t)data_buffer[2]) << 8) + data_buffer[3];
+//       _extra_data_count = (((uint16_t)data_buffer[4]) << 8) + data_buffer[5];
+//       data_size = 0;
+//       _got_cmd_header = true;
 
-      // Validate the command header.
-      const uint8_t error_code =
-          (_speed_units < 1 || _speed_units > 160)      ? 0x0c
-          : (_custom_data_count > kMaxTransactionBytes) ? 0x09
-          : (_extra_data_count > kMaxTransactionBytes)  ? 0x0a
-          : (_custom_data_count + _extra_data_count > kMaxTransactionBytes)
-              ? 0x0b
-              : 0x00;
-      if (error_code) {
-        Serial.write('E');
-        Serial.write(error_code);
-        return true;
-      }
-    }
+//       // Validate the command header.
+//       const uint8_t error_code =
+//           (_speed_units < 1 || _speed_units > 160)      ? 0x0c
+//           : (_custom_data_count > kMaxTransactionBytes) ? 0x09
+//           : (_extra_data_count > kMaxTransactionBytes)  ? 0x0a
+//           : (_custom_data_count + _extra_data_count > kMaxTransactionBytes)
+//               ? 0x0b
+//               : 0x00;
+//       if (error_code) {
+//         Serial.write('E');
+//         Serial.write(error_code);
+//         return true;
+//       }
+//     }
 
-    // We have a valid header. Now read the custom data bytes, if any.
-    static_assert(sizeof(data_buffer) >= kMaxTransactionBytes);
-    if (_custom_data_count) {
-      if (!read_serial_bytes(_custom_data_count)) {
-        return false;
-      }
-    }
+//     // We have a valid header. Now read the custom data bytes, if any.
+//     static_assert(sizeof(data_buffer) >= kMaxTransactionBytes);
+//     if (_custom_data_count) {
+//       if (!read_serial_bytes(_custom_data_count)) {
+//         return false;
+//       }
+//     }
 
-    // At this point, the data buffer has already the custom bytes.
-    // Prepare the extra bytes to send.
-    static_assert(sizeof(data_buffer) >= kMaxTransactionBytes);
-    memset(&data_buffer[_custom_data_count], 0, _extra_data_count);
+//     // At this point, the data buffer has already the custom bytes.
+//     // Prepare the extra bytes to send.
+//     static_assert(sizeof(data_buffer) >= kMaxTransactionBytes);
+//     memset(&data_buffer[_custom_data_count], 0, _extra_data_count);
 
-    // If changing mode, update the clock idle clock level.
-    track_spi_clock_polarity(_spi_mode);
+//     // If changing mode, update the clock idle clock level.
+//     track_spi_clock_polarity(_spi_mode);
 
-    // Perform the SPI transaction using data_buffer as TX/RX buffer.
-    const uint32_t frequency_hz = ((uint32_t)_speed_units) * 25000;
-    SPISettings spi_setting(frequency_hz, MSBFIRST, _spi_mode);
+//     // Perform the SPI transaction using data_buffer as TX/RX buffer.
+//     const uint32_t frequency_hz = ((uint32_t)_speed_units) * 25000;
+//     SPISettings spi_setting(frequency_hz, MSBFIRST, _spi_mode);
 
-    cs_on(_cs_index);
-    SPI.beginTransaction(spi_setting);
+//     cs_on(_cs_index);
+//     SPI.beginTransaction(spi_setting);
 
-    // Perofrm the transaction, using data_buffer and both TX and RX buffer.
-    const uint16_t total_bytes = _custom_data_count + _extra_data_count;
-    SPI.transfer(data_buffer, total_bytes);
+//     // Perofrm the transaction, using data_buffer and both TX and RX buffer.
+//     const uint16_t total_bytes = _custom_data_count + _extra_data_count;
+//     SPI.transfer(data_buffer, total_bytes);
 
-    SPI.endTransaction();
-    all_cs_off();
+//     SPI.endTransaction();
+//     all_cs_off();
 
-    // All done. Send OK response.
-    Serial.write('K');
-    const uint16_t response_count = _return_read_bytes ? total_bytes : 0;
-    Serial.write(response_count >> 8);    // Count MSB
-    Serial.write(response_count & 0xff);  // Count LSB
-    if (response_count) {
-      Serial.write(data_buffer, response_count);
-    }
-    return true;
-  }
+//     // All done. Send OK response.
+//     Serial.write('K');
+//     const uint16_t response_count = _return_read_bytes ? total_bytes : 0;
+//     Serial.write(response_count >> 8);    // Count MSB
+//     Serial.write(response_count & 0xff);  // Count LSB
+//     if (response_count) {
+//       Serial.write(data_buffer, response_count);
+//     }
+//     return true;
+//   }
 
- private:
-  bool _got_cmd_header = false;
+//  private:
+//   bool _got_cmd_header = false;
 
-  // Command header info.
-  uint8_t _cs_index;
-  SPIMode _spi_mode;
-  bool _return_read_bytes;
-  uint8_t _speed_units;
-  uint16_t _custom_data_count;
-  uint16_t _extra_data_count;
+//   // Command header info.
+//   uint8_t _cs_index;
+//   SPIMode _spi_mode;
+//   bool _return_read_bytes;
+//   uint8_t _speed_units;
+//   uint16_t _custom_data_count;
+//   uint16_t _extra_data_count;
 
-  void reset() {
-    _got_cmd_header = false;
-    _cs_index = 0;
-    _spi_mode = SPI_MODE0;
-    _return_read_bytes = false;
-    _speed_units = 0;
-    _custom_data_count = 0;
-    _extra_data_count = 0;
-  }
+//   void reset() {
+//     _got_cmd_header = false;
+//     _cs_index = 0;
+//     _spi_mode = SPI_MODE0;
+//     _return_read_bytes = false;
+//     _speed_units = 0;
+//     _custom_data_count = 0;
+//     _extra_data_count = 0;
+//   }
 
-} send_cmd_handler;
+// } send_cmd_handler;
 
 // SET AUXILARY PIN MODE command.
 //
@@ -513,8 +508,8 @@ static CommandHandler* find_command_handler_by_char(const char cmd_char) {
       return &aux_pins_read_cmd_handler;
     case 'b':
       return &aux_pins_write_cmd_handler;
-    case 's':
-      return &send_cmd_handler;
+    // case 's':
+    //   return &send_cmd_handler;
     default:
       return nullptr;
   }
@@ -533,11 +528,11 @@ void setup() {
   Serial.begin(115200);
 
   // Init CS outputs.
-  for (uint8_t i = 0; i < kNumCsPins; i++) {
-    auto gp_pin = cs_pins[i];
-    pinMode(gp_pin, OUTPUT);
-  }
-  all_cs_off();
+  // for (uint8_t i = 0; i < kNumCsPins; i++) {
+  //   auto gp_pin = cs_pins[i];
+  //   pinMode(gp_pin, OUTPUT);
+  // }
+  // all_cs_off();
 
   // Init aux pins as inputs.
   for (uint8_t i = 0; i < kNumAuxPins; i++) {
@@ -546,8 +541,8 @@ void setup() {
   }
 
   // Initialize the SPI channel.
-  SPI.begin();
-  track_spi_clock_polarity(SPI_MODE0);
+  // SPI.begin();
+  // track_spi_clock_polarity(SPI_MODE0);
 }
 
 // If in command, points to the command handler.
@@ -586,7 +581,7 @@ void loop() {
   }
 
   // Not in a command. Turn off all CS outputs. Just in case.
-  all_cs_off();
+  // all_cs_off();
 
   // Try to read selection char of next command.
   static_assert(sizeof(data_buffer) >= 1);
