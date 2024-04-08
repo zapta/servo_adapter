@@ -1,8 +1,9 @@
 // Firmware of the SPI Adapter implementation using a Raspberry Pico.
 
 #include <Arduino.h>
-#include "board.h"
 #include <mbed.h>
+
+#include "board.h"
 
 // #pragma GCC push_options
 // #pragma GCC optimize("Og")
@@ -10,24 +11,59 @@
 using board::led;
 using mbed::PwmOut;
 
-PwmOut pwm1(p8);
-PwmOut pwm2(p9);
+// PwmOut* pwm = nullptr;
 
+// Based on
+// https://forums.mbed.com/t/pwm-period-is-not-good-on-mbed-with-raspberry-pico/22151/5
+class Servo {
+ public:
+  Servo(uint8_t gpio, uint16_t initial_pw_us)
+      : _gpio(gpio),
+        _slice(pwm_gpio_to_slice_num(gpio)),
+        _chan(pwm_gpio_to_channel(gpio)) {
+    gpio_set_function(_gpio, GPIO_FUNC_PWM);
+    // Raspberry Pico default system clock is 125Mhz.
+    // We divide by 125 for 1us resolution.
+    pwm_set_clkdiv(_slice, 125);
+    // This determines the pwm period. We divide by 20,000 for 50 Hz
+    // PWM cycle. This allowed value here is in the range [0, 65535].
+    pwm_set_wrap(_slice, 20000 - 1);
+    set_pulse_width_us(initial_pw_us);
+    pwm_set_enabled(_slice, true);
+  }
 
-// Maps PWM pin index to gp pin index.
-static uint8_t pwm_pins[] = {
-    8,   // PWM 0 = GP8
-    9,   // PWM 1 = GP9
-    10,  // PWM 2 = GP10
-    11,  // PWM 3 = GP11
-    12,  // PWM 4 = GP12
-    13,  // PWM 5 = GP13
-    14,  // PWM 6 = GP14
-    15,  // PWM 7 = GP15
+  // The standard servo pulse width is in the range 500us to 1500us.
+  void set_pulse_width_us(uint16_t pw_us) {
+    pwm_set_chan_level(_slice, _chan, pw_us - 1);
+  }
+
+ private:
+  const uint _gpio;
+  const uint _slice;
+  const uint _chan;
 };
 
-static constexpr uint8_t kNumPwmPins = sizeof(pwm_pins) / sizeof(*pwm_pins);
-static_assert(kNumPwmPins == 8);
+static Servo servos[] = {
+    Servo(8, 500),  Servo(9, 500),  Servo(10, 500), Servo(11, 500),
+    Servo(12, 500), Servo(13, 500), Servo(14, 500), Servo(15, 500),
+};
+constexpr auto kNumServos = sizeof(servos) / sizeof(*servos);
+static_assert(kNumServos == 8);
+
+// Maps PWM pin index to gp pin index.
+// static uint8_t pwm_pins[] = {
+//     8,   // PWM 0 = GP8
+//     9,   // PWM 1 = GP9
+//     10,  // PWM 2 = GP10
+//     11,  // PWM 3 = GP11
+//     12,  // PWM 4 = GP12
+//     13,  // PWM 5 = GP13
+//     14,  // PWM 6 = GP14
+//     15,  // PWM 7 = GP15
+// };
+
+// static constexpr uint8_t kNumPwmPins = sizeof(pwm_pins) / sizeof(*pwm_pins);
+// static_assert(kNumPwmPins == 8);
 
 // Maps aux pin index to gp pin index.
 static uint8_t aux_pins[] = {
@@ -92,6 +128,10 @@ class Timer {
   void reset(uint32_t millis_now) { _start_millis = millis_now; }
   uint32_t elapsed_millis(uint32_t millis_now) {
     return millis_now - _start_millis;
+  }
+  void add_start_millis(uint32_t time_millis) {
+    // Wrap around ok.
+    _start_millis += time_millis;
   }
 
  private:
@@ -266,10 +306,9 @@ static class InfoCommandHandler : public CommandHandler {
 //       _spi_mode = (SPIMode)((data_buffer[0] >> 2) & 0b11);
 //       _return_read_bytes = data_buffer[0] & 0b10000;
 //       _speed_units = data_buffer[1];
-//       _custom_data_count = (((uint16_t)data_buffer[2]) << 8) + data_buffer[3];
-//       _extra_data_count = (((uint16_t)data_buffer[4]) << 8) + data_buffer[5];
-//       data_size = 0;
-//       _got_cmd_header = true;
+//       _custom_data_count = (((uint16_t)data_buffer[2]) << 8) +
+//       data_buffer[3]; _extra_data_count = (((uint16_t)data_buffer[4]) << 8) +
+//       data_buffer[5]; data_size = 0; _got_cmd_header = true;
 
 //       // Validate the command header.
 //       const uint8_t error_code =
@@ -531,38 +570,43 @@ void setup() {
   // USB serial.
   Serial.begin(115200);
 
-
-  // Pulse width should be between 1000us and 2000ms for 0-180deg.
-  pwm1.pulsewidth_us(1500);
-  pwm1.period_ms(20);
-
-  pwm2.pulsewidth_us(1200);
-  pwm2.period_ms(10);
-
-  // Init CS outputs.
-  // for (uint8_t i = 0; i < kNumCsPins; i++) {
-  //   auto gp_pin = cs_pins[i];
-  //   pinMode(gp_pin, OUTPUT);
-  // }
-  // all_cs_off();
-
   // Init aux pins as inputs.
   for (uint8_t i = 0; i < kNumAuxPins; i++) {
     auto gp_pin = aux_pins[i];
     pinMode(gp_pin, INPUT_PULLUP);
   }
-
-  // Initialize the SPI channel.
-  // SPI.begin();
-  // track_spi_clock_polarity(SPI_MODE0);
 }
 
 // If in command, points to the command handler.
 static CommandHandler* current_cmd = nullptr;
 
+static bool servo_up = true;
+static uint servo_pw = 500;
+static Timer servo_timer;
+
 void loop() {
   Serial.flush();
   const uint32_t millis_now = millis();
+
+  if (servo_timer.elapsed_millis(millis_now) >= 3) {
+    const uint step = 1;
+    servo_timer.add_start_millis(3);
+    if (servo_up) {
+      servo_pw += step;
+      if (servo_pw > 1500) {
+        servo_pw = 1500;
+        servo_up = false;
+      }
+    } else {
+      servo_pw -= step;
+      if (servo_pw < 500) {
+        servo_pw = 500;
+        servo_up = true;
+      }
+    }
+    servos[0].set_pulse_width_us(servo_pw);
+  }
+
   const uint32_t millis_since_cmd_start = cmd_timer.elapsed_millis(millis_now);
 
   // Update LED state. Solid if active or short blinks if idle.
