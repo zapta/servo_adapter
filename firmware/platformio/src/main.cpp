@@ -244,150 +244,57 @@ static class InfoCommandHandler : public CommandHandler {
   }
 } info_cmd_handler;
 
-// SEND command. Send bytes to a device and read the returned bytes.
+// Pulse Width command. Sets the pulse width of a single servo channel.
 //
 // Command:
-// - byte 0:    's'
-// - byte 1:    Config byte, see below
-// - byte 2:    Speed in 25Khz steps. Valid range is [1, 160]
-// - byte 3,4:  Number custom data bytes to write. Big endian. Should be in
-//              the range 0 to (kMaxTransactionBytes - extra_bytes_to_write).
-// - byte 5,6:  Number of extra 0x00 bytes to write. Big endian. should
-//              range 0 to kMaxTransactionBytes.
-// - Byte 7...  The custom data bytes to write.
+// - byte 0:    'w'
+// - byte 1:    Pwm channel index [0, 7]
+// - byte 2,3:  Pulse width in usecs. Big endian. Valid range is [500, 2500]
 //
 // Error response:
 // - byte 0:    'E' for error.
-// - byte 1:    Error code, per the list below, providing more information about
-// the error.
+// - byte 1:    Error code, per the list below, providing additional
+//              information about the error.
 //
 // OK response
 // - byte 0:    'K' for 'OK'.
-// - byte 1,2:  Number read bytes being return. This is zero if config.b4 is
-// zero, else
-//              it's the sumr of custom and extra bytes in the request.
-// - byte 3...  Returned read bytes.
-
-// Request config byte bits
-// 0,1 : CS index.
-// 2:3 : SPI mode, per arduino::SPIMode.
-// 4   : Include bytes read in response
-// 5   : Reserved. Should be 0.
-// 6   : Reserved. Should be 0.
-// 7   : Reserved. Should be 0.
 
 // Error code:
-//  1 : Data too long
-//  2 : NACK on transmit of address
-//  3 : NACK on transmit of data
-//  4 : Other error
-//  5 : Timeout
-//  8 : Device address is out of range..
-//  9 : Custom byte count is out of range.
-// 10 : Extra byte count is out of range.
-// 11 : Byte count out of limit
-// 12 : Speed byte is out of range.
+//  1 : Servo channel index out of range.
+//  2 : Pulse width too low.
+//  3 : Pulse width too high.
 //
-// static class SendCommandHandler : public CommandHandler {
-//  public:
-//   SendCommandHandler() : CommandHandler("SEND") { reset(); }
+static class PulseWidthCommandHandler : public CommandHandler {
+ public:
+  PulseWidthCommandHandler() : CommandHandler("PWM") {}
 
-//   virtual void on_cmd_entered() override { reset(); }
+  virtual bool on_cmd_loop() override {
+    // Read the command.
+    static_assert(sizeof(data_buffer) >= 3);
+    if (!read_serial_bytes(3)) {
+      return false;
+    }
+    // Parse the command.
+    const uint8_t servo_index = data_buffer[0];
+    if (servo_index >= kNumServos) {
+      Serial.write('E');
+      Serial.write(0x01);  // error code
+      return true;
+    }
+    const uint16_t pw_us = (((uint16_t)data_buffer[1]) << 8) + data_buffer[2];
+    if (pw_us < 500 || pw_us > 2500) {
+      Serial.write('E');
+      Serial.write(pw_us < 500 ? 2 : 3);  // error code
+      return true;
+    }
+    // Set the servo.
+    servos[servo_index].set_pulse_width_us(pw_us);
+    // All done ok.
+    Serial.write('K');
+    return true;
+  }
 
-//   virtual bool on_cmd_loop() override {
-//     // Read command header.
-//     if (!_got_cmd_header) {
-//       static_assert(sizeof(data_buffer) >= 6);
-//       if (!read_serial_bytes(6)) {
-//         return false;
-//       }
-//       // Parse the command header
-//       _cs_index = data_buffer[0] & 0b11;
-//       _spi_mode = (SPIMode)((data_buffer[0] >> 2) & 0b11);
-//       _return_read_bytes = data_buffer[0] & 0b10000;
-//       _speed_units = data_buffer[1];
-//       _custom_data_count = (((uint16_t)data_buffer[2]) << 8) +
-//       data_buffer[3]; _extra_data_count = (((uint16_t)data_buffer[4]) << 8) +
-//       data_buffer[5]; data_size = 0; _got_cmd_header = true;
-
-//       // Validate the command header.
-//       const uint8_t error_code =
-//           (_speed_units < 1 || _speed_units > 160)      ? 0x0c
-//           : (_custom_data_count > kMaxTransactionBytes) ? 0x09
-//           : (_extra_data_count > kMaxTransactionBytes)  ? 0x0a
-//           : (_custom_data_count + _extra_data_count > kMaxTransactionBytes)
-//               ? 0x0b
-//               : 0x00;
-//       if (error_code) {
-//         Serial.write('E');
-//         Serial.write(error_code);
-//         return true;
-//       }
-//     }
-
-//     // We have a valid header. Now read the custom data bytes, if any.
-//     static_assert(sizeof(data_buffer) >= kMaxTransactionBytes);
-//     if (_custom_data_count) {
-//       if (!read_serial_bytes(_custom_data_count)) {
-//         return false;
-//       }
-//     }
-
-//     // At this point, the data buffer has already the custom bytes.
-//     // Prepare the extra bytes to send.
-//     static_assert(sizeof(data_buffer) >= kMaxTransactionBytes);
-//     memset(&data_buffer[_custom_data_count], 0, _extra_data_count);
-
-//     // If changing mode, update the clock idle clock level.
-//     track_spi_clock_polarity(_spi_mode);
-
-//     // Perform the SPI transaction using data_buffer as TX/RX buffer.
-//     const uint32_t frequency_hz = ((uint32_t)_speed_units) * 25000;
-//     SPISettings spi_setting(frequency_hz, MSBFIRST, _spi_mode);
-
-//     cs_on(_cs_index);
-//     SPI.beginTransaction(spi_setting);
-
-//     // Perofrm the transaction, using data_buffer and both TX and RX buffer.
-//     const uint16_t total_bytes = _custom_data_count + _extra_data_count;
-//     SPI.transfer(data_buffer, total_bytes);
-
-//     SPI.endTransaction();
-//     all_cs_off();
-
-//     // All done. Send OK response.
-//     Serial.write('K');
-//     const uint16_t response_count = _return_read_bytes ? total_bytes : 0;
-//     Serial.write(response_count >> 8);    // Count MSB
-//     Serial.write(response_count & 0xff);  // Count LSB
-//     if (response_count) {
-//       Serial.write(data_buffer, response_count);
-//     }
-//     return true;
-//   }
-
-//  private:
-//   bool _got_cmd_header = false;
-
-//   // Command header info.
-//   uint8_t _cs_index;
-//   SPIMode _spi_mode;
-//   bool _return_read_bytes;
-//   uint8_t _speed_units;
-//   uint16_t _custom_data_count;
-//   uint16_t _extra_data_count;
-
-//   void reset() {
-//     _got_cmd_header = false;
-//     _cs_index = 0;
-//     _spi_mode = SPI_MODE0;
-//     _return_read_bytes = false;
-//     _speed_units = 0;
-//     _custom_data_count = 0;
-//     _extra_data_count = 0;
-//   }
-
-// } send_cmd_handler;
+} pulse_width_cmd_handler;
 
 // SET AUXILARY PIN MODE command.
 //
@@ -551,8 +458,8 @@ static CommandHandler* find_command_handler_by_char(const char cmd_char) {
       return &aux_pins_read_cmd_handler;
     case 'b':
       return &aux_pins_write_cmd_handler;
-    // case 's':
-    //   return &send_cmd_handler;
+    case 'w':
+      return &pulse_width_cmd_handler;
     default:
       return nullptr;
   }
