@@ -13,6 +13,8 @@ using mbed::PwmOut;
 
 // PwmOut* pwm = nullptr;
 
+// constexpr uint kTest1Pin = 16;
+
 // Based on
 // https://forums.mbed.com/t/pwm-period-is-not-good-on-mbed-with-raspberry-pico/22151/5
 class Servo {
@@ -21,15 +23,26 @@ class Servo {
       : _gpio(gpio),
         _slice(pwm_gpio_to_slice_num(gpio)),
         _chan(pwm_gpio_to_channel(gpio)) {
-    gpio_set_function(_gpio, GPIO_FUNC_PWM);
+    // gpio_set_function(_gpio, GPIO_FUNC_PWM);
+
+    // We start with pwm pin disabled.
+    pwm_off(false);
+
+    // Initialize the slice. Each slice is used by two gpio pins.
     // Raspberry Pico default system clock is 125Mhz.
     // We divide by 125 for 1us resolution.
     pwm_set_clkdiv(_slice, 125);
     // This determines the pwm period. We divide by 20,000 for 50 Hz
     // PWM cycle. This allowed value here is in the range [0, 65535].
     pwm_set_wrap(_slice, 20000 - 1);
-    set_pulse_width_us(initial_pw_us);
     pwm_set_enabled(_slice, true);
+
+    // Set the gpio pulse width. Note that the pin is still
+    // not connected to the PWM generator, until the state is changed to on.
+    set_pulse_width_us(initial_pw_us);
+
+    // Connect the gpio to the PWM slice.
+    // set_state(true);
   }
 
   // The standard servo pulse width is in the range 500us to 1500us.
@@ -37,10 +50,56 @@ class Servo {
     pwm_set_chan_level(_slice, _chan, pw_us - 1);
   }
 
+  // Turn signal on and off.
+  void set_state(bool enabled) {
+    if (enabled == _is_on) {
+      return;  // No change
+    }
+    if (enabled) {
+      pwm_on(true);
+    } else {
+      pwm_off(true);
+    }
+  }
+
  private:
   const uint _gpio;
   const uint _slice;
   const uint _chan;
+  bool _is_on = false;
+
+  void pwm_on(bool sync) {
+    if (sync) {
+      sync_to_counter();
+    }
+    gpio_set_function(_gpio, GPIO_FUNC_PWM);
+    _is_on = true;
+  }
+
+  void pwm_off(bool sync) {
+    if (sync) {
+      sync_to_counter();
+    }
+    // Disable. Set pin to output low.
+    gpio_set_function(_gpio, GPIO_FUNC_SIO);
+    gpio_set_dir(_gpio, true);
+    gpio_put(_gpio, false);
+    _is_on = false;
+  }
+
+  // Wait until the pulse potenial region is over.
+  void sync_to_counter() {
+    // We perform the switch 10ms into the 20ms pwm cycle. This makes
+    // sure that we are not corrupting the servo pulse and gives us 10ms
+    // to complete the switch which is more than enough.
+    constexpr uint kSyncTimeUsecs = 10000;
+    // Wait until entering low count.
+    while (pwm_get_counter(_slice) > kSyncTimeUsecs) {
+    }
+    // Wait until existing low count.
+    while (pwm_get_counter(_slice) < kSyncTimeUsecs) {
+    }
+  }
 };
 
 static Servo servos[] = {
@@ -482,37 +541,55 @@ void setup() {
     auto gp_pin = aux_pins[i];
     pinMode(gp_pin, INPUT_PULLUP);
   }
+
+  // gpio_set_function(kTest1Pin, GPIO_FUNC_SIO);
+  // gpio_set_dir(kTest1Pin, true);
+  // gpio_put(kTest1Pin, false);
+
+  servos[0].set_pulse_width_us(2000);
+  servos[0].set_state(true);
 }
 
 // If in command, points to the command handler.
 static CommandHandler* current_cmd = nullptr;
 
-static bool servo_up = true;
-static uint servo_pw = 500;
-static Timer servo_timer;
+// static bool servo_up = true;
+// static uint servo_pw = 500;
+// static Timer servo_timer;
+
+// static Timer on_off_timer;
+// static bool on_off = true;
 
 void loop() {
   Serial.flush();
   const uint32_t millis_now = millis();
 
-  if (servo_timer.elapsed_millis(millis_now) >= 3) {
-    const uint step = 1;
-    servo_timer.add_start_millis(3);
-    if (servo_up) {
-      servo_pw += step;
-      if (servo_pw > 1500) {
-        servo_pw = 1500;
-        servo_up = false;
-      }
-    } else {
-      servo_pw -= step;
-      if (servo_pw < 500) {
-        servo_pw = 500;
-        servo_up = true;
-      }
-    }
-    servos[0].set_pulse_width_us(servo_pw);
-  }
+  // if (servo_timer.elapsed_millis(millis_now) >= 3) {
+  //   const uint step = 1;
+  //   servo_timer.add_start_millis(3);
+  //   if (servo_up) {
+  //     servo_pw += step;
+  //     if (servo_pw > 2500) {
+  //       servo_pw = 2500;
+  //       servo_up = false;
+  //     }
+  //   } else {
+  //     servo_pw -= step;
+  //     if (servo_pw < 500) {
+  //       servo_pw = 500;
+  //       servo_up = true;
+  //     }
+  //   }
+  //   servos[0].set_pulse_width_us(servo_pw);
+  // }
+
+  // if (on_off_timer.elapsed_millis(millis_now) >= 500) {
+  //   on_off_timer.reset(millis_now);
+  //   on_off = !on_off;
+  //   gpio_put(kTest1Pin, true);
+  //   servos[0].set_state(on_off);
+  //   gpio_put(kTest1Pin, false);
+  // }
 
   const uint32_t millis_since_cmd_start = cmd_timer.elapsed_millis(millis_now);
 
