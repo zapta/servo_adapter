@@ -282,9 +282,9 @@ static class EchoCommandHandler : public CommandHandler {
 //
 // Response:
 // - byte 0:  'K' for OK.
-// - byte 1:  'P'
-// - byte 2:  'W'
-// - byte 3:  'M'
+// - byte 1:  'S'
+// - byte 2:  'R'
+// - byte 3:  'V'
 // - byte 4:  Number of bytes to follow (3).
 // - byte 5:  Version of wire format API.
 // - byte 6:  MSB of firmware version.
@@ -294,9 +294,9 @@ static class InfoCommandHandler : public CommandHandler {
   InfoCommandHandler() : CommandHandler("INFO") {}
   virtual bool on_cmd_loop() override {
     Serial.write('K');  // 'K' for OK.
-    Serial.write('P');
-    Serial.write('W');
-    Serial.write('M');
+    Serial.write('S');
+    Serial.write('R');
+    Serial.write('V');
     Serial.write(0x03);                     // Number of bytes to follow.
     Serial.write(kApiVersion);              // API version.
     Serial.write(kFirmwareVersion >> 8);    // Firmware version MSB.
@@ -369,6 +369,7 @@ static class PulseWidthCommandHandler : public CommandHandler {
 //              is ignored.
 // Error response:
 // - byte 0:    'E' for error.
+// - byte 1:    Reserved. '0'.
 //
 // OK response
 // - byte 0:    'K' for 'OK'.
