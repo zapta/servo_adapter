@@ -30,6 +30,7 @@ Random servo positon every 1 second.
 
   import time
   from random import randrange
+  from servo_adaptr import ServoAdapter
 
   # Serial port name. Adapt to your system.
   port = "/dev/tty.usbmodem1101"

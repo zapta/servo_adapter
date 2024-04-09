@@ -39,6 +39,7 @@ In the example below, we use an Servo Adapter that control a servo that is conne
 ```python
 import time
 from random import randrange
+from servo_adaptr import ServoAdapter
 
 # Serial port name. Adapt to your system.
 port = "/dev/tty.usbmodem1101"
