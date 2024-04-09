@@ -6,8 +6,8 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'The SPI Adapter'
-copyright = '2023, Zapta'
+project = 'The Servo Adapter'
+copyright = '2024, Zapta'
 author = 'Zapta'
 release = '0.0.1'
 
