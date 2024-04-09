@@ -38,19 +38,20 @@ In the example below, we use an Servo Adapter that control a servo that is conne
 
 ```python
 import time
-from spi_adapter import SpiAdapter
+from random import randrange
 
-spi =  SpiAdapter(port = "COM18)
+# Serial port name. Adapt to your system.
+port = "/dev/tty.usbmodem1101"
 
-# Single shot, 2.046v FS, Input (A0, GND).
-adc_cmd = bytes([0b11000101, 0b10001010, 0x00, 0x00])
+# Connect to adapter and enable PWM servo out 0.
+adapter = ServoAdapter(port=port)
+adapter.set_servo_state(0, True)
 
 while True:
-  # Read previous value and start a the next conversion.
-  response_bytes = spi.send(adc_cmd, mode=1)
-  adc_value = int.from_bytes(response_bytes[0:2], byteorder='big', signed=True)
-  print(f"ADC: {adc_value}", flush=True)
-  time.sleep(0.5)
+    # Random pulse width in the range 1000us to 2000us.
+    pw_us = 1000 + randrange(1000 + 1)
+    adapter.set_servo_pulse_width(0, pw_us)
+    time.sleep(1.0)
 ```
 
 <br>

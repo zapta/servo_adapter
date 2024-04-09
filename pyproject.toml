@@ -9,12 +9,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "spi_adapter"
-version = "0.00.6"
+name = "servo_adapter"
+version = "0.00.2"
 authors = [
   { name="Zapta", email="zapta@zapta.com" },
 ]
-description = "A simple USB to SPI adapter that works."
+description = "A simple USB to servo adapter that works."
 readme = "README.md"
 requires-python = ">=3.7"
 classifiers = [
@@ -32,7 +32,7 @@ dependencies = [
 # NOTE: The package directory below must match the project name above.
 include = [
   "LICENSE",
-  "/src/spi_adapter",
+  "/src/servo_adapter",
 ]
 # NOTE: root .gitignore can't be excluded per 
 # https://github.com/pypa/hatch/discussions/368
@@ -43,8 +43,8 @@ exclude = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/zapta/spi_adapter"
-"Documentation" = "https://spi-adapter.readthedocs.io/en/latest"
-"Repository" = "https://github.com/zapta/spi_adapter.git"
-"Bug Tracker" = "https://github.com/zapta/spi_adapter/issues"
+"Homepage" = "https://github.com/zapta/servo_adapter"
+"Documentation" = "https://servo-adapter.readthedocs.io/en/latest"
+"Repository" = "https://github.com/zapta/servo_adapter.git"
+"Bug Tracker" = "https://github.com/zapta/servo_adapter/issues"
 
