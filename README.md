@@ -1,12 +1,12 @@
-# A Simple USB to SPI Adapter that works.
+# A Simple USB to Servo Adapter that works.
 
-The SPI Adapter allows python programs to connect to SPI devices using off the shelf low cost boards such the Raspberry Pico or SparkFun Pro Micro - RP2040. The SPI Adapter appears on the computer as a serial port (no device installation required) and acts as a USB to SPI bridge, with the ``spi_adapter`` Python package providing an easy to use API.
+The Servo Adapter allows python programs to connect to RC Servos using off the shelf low cost boards such the Raspberry Pico or SparkFun Pro Micro - RP2040. The Servo Adapter appears on the computer as a serial port (no device installation required) and acts as a USB to Servo bridge, with the ``servo_adapter`` Python package providing an easy to use API.
 
 
-For example, the diagram below shows the wiring of the [oled_demo.py](https://github.com/zapta/spi_adapter/blob/main/examples/oled_demo.py) example which drives an SPI OLED display using an SPI Adapter and the luma.oled python package.
+For example, the diagram below shows the wiring of a servo to one of the 8 servo outputs of the Servo adapter.
 
 <br>
-<img  src="https://raw.githubusercontent.com/zapta/spi_adapter/main/www/wiring_diagram.png"
+<img  src="https://raw.githubusercontent.com/zapta/servo_adapter/main/www/wiring_diagram.png"
       style="display: block;margin-left: auto;margin-right: auto;width: 80%;" />
 <br>
 
@@ -14,7 +14,8 @@ For example, the diagram below shows the wiring of the [oled_demo.py](https://gi
 
 ## Highlights
 
-* Provides USB to SPI bridge.
+* Support up to 8 independent servo channels.
+* Hardware based 1us resolution servo PWM timing generation.
 * Supports Windows/Mac/Linux.
 * Uses low cost low cost off-the-shelf boards as adapters.
 * Does not require driver installation (it appears on the computer as standard a serial port).
@@ -30,10 +31,10 @@ For example, the diagram below shows the wiring of the [oled_demo.py](https://gi
 Package installation
 
 ```bash
-pip install spi-adapter --upgrade
+pip install servo-adapter --upgrade
 ```
 
-In the example below, we use an SPI Adapter that appears as serial port "COM7" to access an ADS1118 SPI ADC device.
+In the example below, we use an Servo Adapter that control a servo that is connected to servo output 0.
 
 ```python
 import time
@@ -56,4 +57,4 @@ while True:
 
 ## Documentation
 
-Full documentation is available at <https://spi-adapter.readthedocs.io/>
+Full documentation is available at <https://servo-adapter.readthedocs.io/>
