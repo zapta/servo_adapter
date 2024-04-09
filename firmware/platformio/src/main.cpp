@@ -87,17 +87,19 @@ class Servo {
     _is_on = false;
   }
 
-  // Wait until the pulse potenial region is over.
+  // Wait for a 'dead' portion of the pwm cycle so we can change the pwm pin
+  // state without corrupting a pulse.
   void sync_to_counter() {
-    // We perform the switch 10ms into the 20ms pwm cycle. This makes
-    // sure that we are not corrupting the servo pulse and gives us 10ms
-    // to complete the switch which is more than enough.
-    constexpr uint kSyncTimeUsecs = 10000;
-    // Wait until entering low count.
-    while (pwm_get_counter(_slice) > kSyncTimeUsecs) {
-    }
-    // Wait until existing low count.
-    while (pwm_get_counter(_slice) < kSyncTimeUsecs) {
+    // Dead zone specification [3000us, 15000us]. It's past the servo pulses and
+    // provides 5ms to perform the switch until the next pwem pulses (assuming
+    // period = 20ms)
+    constexpr uint kDeadTimeMinUs = 3000;
+    constexpr uint kDeadTimeMaxUs = 15000;
+    for (;;) {
+      const uint16_t counter = pwm_get_counter(_slice);
+      if (counter >= kDeadTimeMinUs && counter <= kDeadTimeMaxUs) {
+        return;
+      }
     }
   }
 };
@@ -355,6 +357,50 @@ static class PulseWidthCommandHandler : public CommandHandler {
 
 } pulse_width_cmd_handler;
 
+// PWM State command. Sets PWM channels on/off.
+//
+// Command:
+// - byte 0:    's'
+// - byte 1:    Channel mask. Only the PWM channels whose respective bit is set
+// to 1 are affected.
+// - byte 2::   Channel state. PWM channels shows mask bit is '1' are enabled if
+// their bit here is '1'
+//              or disabled if their bit here is '0'. Otherwise, their bit here
+//              is ignored.
+// Error response:
+// - byte 0:    'E' for error.
+//
+// OK response
+// - byte 0:    'K' for 'OK'.
+//
+static class PwmStateCommandHandler : public CommandHandler {
+ public:
+  PwmStateCommandHandler() : CommandHandler("STATE") {}
+
+  virtual bool on_cmd_loop() override {
+    // Read the command.
+    static_assert(sizeof(data_buffer) >= 2);
+    if (!read_serial_bytes(2)) {
+      return false;
+    }
+    // Parse the command.
+    const uint8_t chan_mask = data_buffer[0];
+    const uint8_t chan_flags = data_buffer[1];
+
+    // Apply the settings
+    static_assert(kNumServos == 8);
+    for (uint8_t i = 0; i < 8; i++) {
+      if ((chan_mask >> i) & 0x01) {
+        servos[i].set_state((chan_flags >> i) & 0x01);
+      }
+    }
+    // All done ok.
+    Serial.write('K');
+    return true;
+  }
+
+} pwm_state_cmd_handler;
+
 // SET AUXILARY PIN MODE command.
 //
 // Command:
@@ -519,6 +565,8 @@ static CommandHandler* find_command_handler_by_char(const char cmd_char) {
       return &aux_pins_write_cmd_handler;
     case 'w':
       return &pulse_width_cmd_handler;
+    case 's':
+      return &pwm_state_cmd_handler;
     default:
       return nullptr;
   }
